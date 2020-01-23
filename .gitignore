@@ -1,0 +1,10 @@
+# Ignore all
+*
+
+# Except config files
+!.gitlab-ci.yml
+!.gitignore
+!README.md
+
+# Except yaml deployment files
+!deploy/*.yaml

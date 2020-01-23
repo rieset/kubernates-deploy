@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Define in repository config in gitlab
+  name: ${PROJECT_NAME}
+  # Define in repository config in gitlab
+  namespace: ${PROJECT_NAMESPACE}
+
+  labels:
+    # Code repositories pass this variable in .env file
+    commit: "${COMMIT_SHORT_SHA}"
+
+    # Gitlab pass this environment variable
+    # https://docs.gitlab.com/ee/ci/variables/#syntax-of-environment-variables-in-job-scripts
+    server_commit: "${CI_COMMIT_SHORT_SHA}"
+spec:
+  # is an optional field that specifies the minimum number of seconds for
+  # which a newly created Pod should be ready without any of its
+  # containers crashing
+  # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#min-ready-seconds
+  minReadySeconds: 60
+
+  #  field in a Deployment to specify how many old ReplicaSets
+  # for this Deployment you want to retain.
+  # The rest will be garbage-collected in the background. By default, it is 10.
+  # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#revision-history-limit
+  revisionHistoryLimit: 1
+
+  # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#max-surge
+      maxSurge: "30%"
+
+      # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#max-unavailable
+      maxUnavailable: "30%"
+
+  # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#pod-template
+  selector:
+    matchLabels:
+      app: ${PROJECT_NAME}
+
+  # Is an optional field that specifies the number of desired Pods. It defaults to 1.
+  # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#replicas
+  replicas: 1
+
+  # https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#pod-template
+  template:
+    metadata:
+      labels:
+        # Code repositories pass this variable
+        docker_tag: "${DOCKER_TAG}"
+
+        app: "${PROJECT_NAME}"
+
+        # Gitlab pass this environment variable
+        commit: "${CI_COMMIT_SHORT_SHA}"
+    spec:
+      imagePullSecrets:
+        - name: ${PROJECT_NAME}-registry
+      restartPolicy: Always
+      containers:
+        - name: ${PROJECT_NAME}
+          image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+          imagePullPolicy: Always
+          envFrom:
+          - configMapRef:
+              name: ${PROJECT_NAME}-configs
+          - secretRef:
+              name: ${PROJECT_NAME}-secrets
+          ports:
+            - name: web
+              containerPort: 80
+              protocol: TCP
+
+          # https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-readiness-probes
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+
+          resources:
+            requests:
+              # https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/#exceed-a-container-s-memory-limit
+              memory: 128Mi
+            limits:
+              # https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/#exceed-a-container-s-memory-limit
+              memory: 512Mi
+              cpu: 500m
+

@@ -1,0 +1,181 @@
+stages:
+  - config
+  - deploy_namespace
+  - deploy_secrets
+  - registry_secret_delete
+  - registry_secret_create
+  - deploy
+  - waiting
+
+
+# Замена паттерна ${ENV_NAME} в файлах на текущие
+# переменные окружения в gitlab раннере
+master:
+  # Применяем шаблон для внедрения
+  # переменных окружения в конфигурационные файлы
+  extends: .apply_environments
+  variables:
+    NODE_ENV: "production"
+    PUBLIC_URL: "https://example.com"
+    API_URL: "https://example.com"
+    BROWSER_API_URL: "https://example.com"
+  # extended stage ...
+  # extended artifacts ...
+  # extended script ...
+  # extended image ...
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+staging:
+  # Применяем шаблон для внедрения
+  # переменных окружения в конфигурационные файлы
+  extends: .apply_environments
+  stage: config
+  variables:
+    NODE_ENV: "production"
+    PUBLIC_URL: "https://stage.example.com"
+    API_URL: "https://stage.example.com"
+    BROWSER_API_URL: "https://stage.example.com"
+  # extended stage ...
+  # extended artifacts ...
+  # extended script ...
+  # extended image ...
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+namespace:
+  stage: deploy_namespace
+  image: rieset/kubectl
+  script:
+    - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+    - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+    - kubectl config set-context default --cluster=k8s --user=admin
+    - kubectl config use-context default
+
+    # Добавляем неймспейс
+    - kubectl apply -f ./deploy/namespace.yaml
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+secrets:
+  stage: deploy_secrets
+  image: rieset/kubectl
+  script:
+    - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+    - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+    - kubectl config set-context default --cluster=k8s --user=admin
+    - kubectl config use-context default
+
+    # Добавляем configMap с конфигурационными переменными окружения
+    - kubectl apply -f ./deploy/configs.yaml
+
+    # Добавляем секреты для доступов к ресурсам
+    - kubectl apply -f ./deploy/secrets.yaml
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+deploy:
+  stage: deploy
+  image: rieset/kubectl
+  script:
+    # Custom config
+    - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+    - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+    - kubectl config set-context default --cluster=k8s --user=admin
+    - kubectl config use-context default
+
+    # Деплоим Deployment
+    - kubectl apply -f ./deploy/deployment.yaml
+
+    # Деплоим Service
+    - kubectl apply -f ./deploy/service.yaml
+
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+waiting:
+  image: rieset/kubectl
+  stage: waiting
+  script:
+    - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+    - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+    - kubectl config set-context default --cluster=k8s --user=admin
+    - kubectl config use-context default
+
+    - kubectl rollout status -n "$PROJECT_NAMESPACE" -w "deployment/$PROJECT_NAME"
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+# Наследуемый шаблон
+# Для того что бы применить переменные окружения в файлах описания серверов
+.apply_environments:
+  image: rieset/kubectl
+  stage: config
+  script:
+    # Change environment variable on file
+    - envsub ./deploy/configs.yaml ./deploy/configs.yaml
+    # Change environment variable on file
+    - envsub ./deploy/secrets.yaml ./deploy/secrets.yaml
+    # Change environment variable on file
+    - envsub ./deploy/namespace.yaml ./deploy/namespace.yaml
+    # Change environment variable on file
+    - envsub ./deploy/namespace.yaml ./deploy/namespace.yaml
+    # Change environment variable on file
+    - envsub ./deploy/deployment.yaml ./deploy/deployment.yaml
+    # Change environment variable on file
+    - envsub ./deploy/service.yaml ./deploy/service.yaml
+  artifacts:
+    # Передаем измененные файлы дальше в пайплайн
+    paths:
+      - ./deploy
+    expire_in: 1 hour
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+registry_delete:
+  stage: registry_secret_delete
+  image: rieset/kubectl
+  script:
+    - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+    - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+    - kubectl config set-context default --cluster=k8s --user=admin
+    - kubectl config use-context default
+
+    # DOCKER REGISTRY
+    - kubectl delete -n test secret $PROJECT_NAME-registry
+  allow_failure: true
+  only:
+    variables:
+      - $DOCKER_IMAGE
+
+
+registry_create:
+  stage: registry_secret_create
+  image: rieset/kubectl
+  script:
+    - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+    - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+    - kubectl config set-context default --cluster=k8s --user=admin
+    - kubectl config use-context default
+
+    # DOCKER REGISTRY
+    - kubectl -n "test" create secret docker-registry $PROJECT_NAME-registry --docker-server=$CI_REGISTRY --docker-username="$CI_DEPLOY_USER" --docker-password="$CI_DEPLOY_PASSWORD" --docker-email="$GITLAB_USER_EMAIL" --dry-run=true -o yaml | kubectl apply -f -
+  allow_failure: true
+  only:
+    variables:
+      - $DOCKER_IMAGE
+

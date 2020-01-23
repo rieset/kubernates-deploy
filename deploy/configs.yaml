@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Define in repository config in gitlab
+  name: ${PROJECT_NAME}-configs
+  # Define in repository config in gitlab
+  namespace: ${PROJECT_NAMESPACE}
+data:
+  # Passed variables to Docker
+  PUBLIC_URL: ${PUBLIC_URL}
+  API_URL: ${API_URL}
+  BROWSER_API_URL: ${BROWSER_API_URL}
+  NODE_ENV: ${NODE_ENV}
+  WORDPRESS_DEBUG: "1"
